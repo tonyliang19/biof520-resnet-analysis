@@ -1,0 +1,151 @@
+---
+title: "Deep Learning Image Classification"
+author: "Tony Liang"
+date: "2024-04-06"
+bibliography: references.bib
+link-citations: true
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/research-institute-for-nature-and-forest.csl
+linkcolor: blue
+output: 
+  bookdown::pdf_document2:
+    toc: false
+    number_sections: false
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(here)
+library(knitr)
+library(kableExtra)
+
+# Round digits
+digits <- 3
+```
+
+
+## Metrics Evaluation
+
+> What metrics did you use for evaluating your networks, and why? How would you expect your chosen metrics to behave in a dataset that has mostly negative labels (i.e. very few tumor cell annotations)?
+
+Given the classification problem is binary (two classes), hence I used various classic binary classification metrics like accuracy, precision, recall, and f1-score. These metrics all measures different aspect of correctly predicted tumor images, or classified tumors/non-tumors [@lever2016classification]. Moreover, they're easily accessible through python library scikit-learn [@pedregosa2011scikit], hence selected to evaluate the networks.
+
+Out of these metrics, accuracy might be the metric that is most affected when labels are mostly negative. This is because accuracy represent the following:
+
+$$\text{accuracy} = \frac{TP + TN}{P+N} = \frac{\text{Correct Predictions}}{\text{Total Predictions}}$$
+
+Then, if one dataset has mostly negative labels, the accuracy could still be very high, given it could classify these negative labels almost as perfect, while not considering the imbalanced distribution of labels, hence misleading metric. That is also why we need to introduce other metrics like precision and recall to measure correct positive identifications or actual positives that were identified correctly.
+
+
+## Classification results
+
+> How did your results differ when testing your initial trained network on the training dataset and the two test datasets? Why do you think this happened? 
+
+
+### ResNet18 Baseline
+
+We first train the network with the slide images with resnet [@he2016deep] as its baseline under the pytorch framework [@paszke2019pytorch], then tested this trained network against each of our training dataset, test dataset 1, and test dataset 2. We would expect that the evaluation on the training dataset has the highest performance, given we are evaluating on the same data that a network or a model was trained on. I think this step is more like a sanity check, hence we should not only rely on the performance on the training set. 
+
+Then, the performance on those test datasets varied. Test data 1 had higher metrics given the images collected are more balanced (i.e. having almost equivalent numbers of images with and without tumour cells annotation). But, test data 2 dropped drastically compared to test data 1, because of its uneven distribution of labels (very few tumor cell annotations). Lastly, we expect these test datasets should have lower performance than on the train dataset, as these serve the purpose to "generalize" or estimate how well our model would work on future unseen data.
+
+
+Table \@ref(tab:baseline-table) summarizes the classification metrics on each of the datasets evaluation on our trained network with baseline as resnet18 and default hyperparameters of learning rate $1e^{-4}$, batch size of $32$ and number of epochs $5$.
+
+```{r baseline-table}
+baseline_result <- read.csv(here("data/baseline_results.csv")) |>
+  select(-X) |>
+  mutate(dataset = case_when(
+    str_detect(dataset, "_1") ~ "Test data 1",
+    str_detect(dataset, "_2") ~ "Test data 2",
+    TRUE ~ "Train data"
+    )
+  )
+
+
+baseline_result |>
+  kbl(digits = digits, 
+      col.names = c("Dataset", "Accuracy", "Precision", "Recall", "F1 Score"),
+        caption = "Baseline Results of ResNet18 classification performance on tumor datasets",
+        booktabs = TRUE)
+```
+
+### ResNet50
+
+Other than the initial baseline, I also tried to train network using another backbone, resnet50 [@he2016deep]. Its corresponding results are shown at table \@ref(tab:resnet50-table).
+
+```{r resnet50-table}
+resnet50_result <- read.csv(here("data/resnet50_baseline_results.csv")) |>
+  select(-X) |>
+  mutate(dataset = case_when(
+    str_detect(dataset, "_1") ~ "Test data 1",
+    str_detect(dataset, "_2") ~ "Test data 2",
+    TRUE ~ "Train data"
+    )
+  )
+
+
+resnet50_result |>
+  kbl(digits = digits, 
+      col.names = c("Dataset", "Accuracy", "Precision", "Recall", "F1 Score"),
+        caption = "Baseline Results of ResNet50 classification performance on tumor datasets",
+        booktabs = TRUE)
+```
+
+## Hyperparameter Results
+
+> How did the performance on the two test sets change when you modified hyperparameters and used a cross-validation strategy to choose the best model? 
+
+
+The previous results were sort of baseline using default and suboptimal hyperparameters, hence we could access model performance on the two sets using optimal hyperparameter sets. These could be estimated by implementing a cross-validation (cv) strategy [@berrar2019cross] into our train and evaluation of network. That is, for a grid of hyperparameter a, $a_1, ... , a_n$, hyperparameter b, $b_1, ... , b_m$ or more, run cross validation on each combination of these hyperparameters and get their mean score of folds (using accuracy to rank these), and find such combination that achieves highest mean accuracy score. Then, these set of parameters could be used to train a "best" model and evaluate on all datasets again.
+
+Table \@ref(tab:hpo-result-table) is summary of best model performance on each dataset with optimal hyperparameters
+
+```{r hpo-result-table}
+hpo_result <- read.csv(here("data/resnet18_hpo_results.csv")) |>
+  select(-X) |>
+  mutate(dataset = case_when(
+    str_detect(dataset, "_1") ~ "Test data 1",
+    str_detect(dataset, "_2") ~ "Test data 2",
+    TRUE ~ "Train data"
+    )
+  )
+
+
+hpo_result |>
+  kbl(digits = digits, 
+      col.names = c("Dataset", "Accuracy", "Precision", "Recall", "F1 Score"),
+        caption = "Hyperameter Optimal Results of ResNet18 classification performance on tumor datasets",
+        booktabs = TRUE)
+```
+
+
+Table \@ref(tab:mean-cv-table) that illustrate the mean cv score of each hyperparameter combination. I tuned epochs and learning rate.
+
+```{r mean-cv-table}
+mean_cv_df <- read.csv(here("data/hyperparameter_tuned_df.csv")) |>
+  select(-X)
+
+mean_cv_df |>
+  kbl(digits = digits,
+      caption = "Mean cross-validation accuracy for hyperparameter combination pair of ResNet18",
+      booktabs = TRUE)
+```
+
+## Differences in performance
+
+> Hypothesize why there is a difference in performance between the performance of the model on test set 1 and test set 2 in your ‘Baseline results’ table. Hint: do the differences go away with your attempts in #2 and #3? 
+
+The different performance across two test dataset could be due to suboptimal hyperapameters, like too few rounds of training so model could not learn all patterns yet, or learning rate being too small/big that optimizes slowly or skips minimas. Moreover, data quality also matter, it could be due to poor quality or similar images in both normal and tumor images. Specifically, the images of test data 2 had a higher hue of coloring, such that its background color (pink red? fuchsia?) is very similar to the tumor annotation (red), hence make this hard to classify and reducing performance upon evaluation.
+
+With optimal hyperparameters, the performance on train and test 1 have all bumped up compared to using those default ones (or inital ones) for our trained model with backbone resnet18. But, test 2 had a worse performance now.
+
+## Future dataset attempt
+
+> What would you expect to happen when you try this on a dataset from another research center? What types of challenges do you expect to encounter?
+
+It is hard to tell if our trained network can perform equally well with future datasets from another research center, most likely it would perform poorly, given the differences in histology and annotations from centres. And, other factors like batch normalization and technology differences could also affect the data quality, thus affecting on the classification performance as well. In general, we would need to train on more datasets, so it could generalize.
+
+\newpage
+
+## References
+
